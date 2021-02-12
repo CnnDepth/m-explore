@@ -5,8 +5,15 @@
 #include <costmap_2d/cost_values.h>
 #include <costmap_2d/costmap_2d.h>
 #include <geometry_msgs/Point.h>
+#include <geometry_msgs/Quaternion.h>
+#include <tf/transform_datatypes.h>
+#include <bits/stdc++.h>
+#include <math.h>
 
 #include <explore/costmap_tools.h>
+
+#include <iostream>
+#include <fstream>
 
 namespace frontier_exploration
 {
@@ -15,16 +22,17 @@ using costmap_2d::NO_INFORMATION;
 using costmap_2d::FREE_SPACE;
 
 FrontierSearch::FrontierSearch(costmap_2d::Costmap2D* costmap,
-                               double potential_scale, double gain_scale,
+                               double potential_scale, double gain_scale, double orientation_scale,
                                double min_frontier_size)
   : costmap_(costmap)
   , potential_scale_(potential_scale)
   , gain_scale_(gain_scale)
+  , orientation_scale_(orientation_scale)
   , min_frontier_size_(min_frontier_size)
 {
 }
 
-std::vector<Frontier> FrontierSearch::searchFrom(geometry_msgs::Point position)
+std::vector<Frontier> FrontierSearch::searchFrom(geometry_msgs::Point position, geometry_msgs::Quaternion orientation)
 {
   std::vector<Frontier> frontier_list;
 
@@ -41,6 +49,12 @@ std::vector<Frontier> FrontierSearch::searchFrom(geometry_msgs::Point position)
   map_ = costmap_->getCharMap();
   size_x_ = costmap_->getSizeInCellsX();
   size_y_ = costmap_->getSizeInCellsY();
+
+  // compute current robot's orientation (yaw angle)
+  tf::Quaternion quat(orientation.x, orientation.y, orientation.z, orientation.w);
+  tf::Matrix3x3 quaternion_matrix(quat);
+  double roll, pitch, yaw;
+  quaternion_matrix.getRPY(roll, pitch, yaw);
 
   // initialize flag arrays to keep track of visited and frontier cells
   std::vector<bool> frontier_flag(size_x_ * size_y_, false);
@@ -74,7 +88,7 @@ std::vector<Frontier> FrontierSearch::searchFrom(geometry_msgs::Point position)
         // neighbour)
       } else if (isNewFrontierCell(nbr, frontier_flag)) {
         frontier_flag[nbr] = true;
-        Frontier new_frontier = buildNewFrontier(nbr, pos, frontier_flag);
+        Frontier new_frontier = buildNewFrontier(nbr, pos, yaw, frontier_flag);
         if (new_frontier.size * costmap_->getResolution() >=
             min_frontier_size_) {
           frontier_list.push_back(new_frontier);
@@ -94,8 +108,18 @@ std::vector<Frontier> FrontierSearch::searchFrom(geometry_msgs::Point position)
   return frontier_list;
 }
 
+double normalize(double angle)
+{
+  double result = angle + 2 * M_PI;
+  if (result > M_PI)
+    result -= 2 * M_PI;
+  if (result > M_PI)
+    result -= 2 * M_PI;
+}
+
 Frontier FrontierSearch::buildNewFrontier(unsigned int initial_cell,
                                           unsigned int reference,
+                                          double yaw,
                                           std::vector<bool>& frontier_flag)
 {
   // initialize frontier structure
@@ -149,12 +173,15 @@ Frontier FrontierSearch::buildNewFrontier(unsigned int initial_cell,
 
         // determine frontier's distance from robot, going by closest gridcell
         // to robot
-        double distance = sqrt(pow((double(reference_x) - double(wx)), 2.0) +
-                               pow((double(reference_y) - double(wy)), 2.0));
+        double diff_x = reference_x - wx;
+        double diff_y = reference_y - wy;
+        double distance = sqrt(diff_x * diff_x + diff_y * diff_y);
         if (distance < output.min_distance) {
           output.min_distance = distance;
           output.middle.x = wx;
           output.middle.y = wy;
+          double direction_to_frontier = std::atan2(double(wy) - double(reference_y), double(wx) - double(reference_x));
+          output.angle = std::abs(normalize(direction_to_frontier - yaw));
         }
 
         // add to queue for breadth first search
@@ -166,6 +193,7 @@ Frontier FrontierSearch::buildNewFrontier(unsigned int initial_cell,
   // average out frontier centroid
   output.centroid.x /= output.size;
   output.centroid.y /= output.size;
+
   return output;
 }
 
@@ -190,8 +218,11 @@ bool FrontierSearch::isNewFrontierCell(unsigned int idx,
 
 double FrontierSearch::frontierCost(const Frontier& frontier)
 {
+  std::cout << "Frontier angle: " << frontier.angle << std::endl;
+  std::cout << "Frontier distance: " << frontier.min_distance << std::endl;
   return (potential_scale_ * frontier.min_distance *
-          costmap_->getResolution()) -
+          costmap_->getResolution()) +
+         (orientation_scale_ * frontier.angle) -
          (gain_scale_ * frontier.size * costmap_->getResolution());
 }
 }

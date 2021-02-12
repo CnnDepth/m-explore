@@ -36,7 +36,7 @@
  *********************************************************************/
 
 #include <explore/explore.h>
-
+#include <cstdio>
 #include <thread>
 
 inline static bool operator==(const geometry_msgs::Point& one,
@@ -70,12 +70,13 @@ Explore::Explore()
   private_nh_.param("min_frontier_size", min_frontier_size, 0.5);
 
   search_ = frontier_exploration::FrontierSearch(costmap_client_.getCostmap(),
-                                                 potential_scale_, gain_scale_,
+                                                 potential_scale_, gain_scale_, orientation_scale_,
                                                  min_frontier_size);
 
   if (visualize_) {
     marker_array_publisher_ =
         private_nh_.advertise<visualization_msgs::MarkerArray>("frontiers", 10);
+    path_to_goal_publisher_ = private_nh_.advertise<nav_msgs::Path>("path", 10);
   }
 
   ROS_INFO("Waiting to connect to move_base server");
@@ -181,10 +182,11 @@ void Explore::makePlan()
   // find frontiers
   auto pose = costmap_client_.getRobotPose();
   // get frontiers sorted according to cost
-  auto frontiers = search_.searchFrom(pose.position);
+  auto frontiers = search_.searchFrom(pose.position, pose.orientation);
   ROS_DEBUG("found %lu frontiers", frontiers.size());
   for (size_t i = 0; i < frontiers.size(); ++i) {
     ROS_DEBUG("frontier %zd cost: %f", i, frontiers[i].cost);
+    ROS_DEBUG("frontier %zd angle: %f", i, frontiers[i].angle);
   }
 
   if (frontiers.empty()) {
@@ -204,13 +206,14 @@ void Explore::makePlan()
                          return goalOnBlacklist(f.centroid);
                        });
   if (frontier == frontiers.end()) {
+    ROS_INFO("All frontiers are in blacklist. Exploration stopped.");
     stop();
     return;
   }
   geometry_msgs::Point target_position = frontier->centroid;
 
   // time out if we are not making any progress
-  bool same_goal = prev_goal_ == target_position;
+  bool same_goal = (target_position == prev_goal_);
   prev_goal_ = target_position;
   if (!same_goal || prev_distance_ > frontier->min_distance) {
     // we have different goal or we made some progress
@@ -220,13 +223,14 @@ void Explore::makePlan()
   // black list if we've made no progress for a long time
   if (ros::Time::now() - last_progress_ > progress_timeout_) {
     frontier_blacklist_.push_back(target_position);
-    ROS_DEBUG("Adding current goal to black list");
+    ROS_INFO("Adding current goal to black list");
     makePlan();
     return;
   }
 
   // we don't need to do anything if we still pursuing the same goal
   if (same_goal) {
+    ROS_INFO("Found the same goal again. No actions will be performed.");
     return;
   }
 

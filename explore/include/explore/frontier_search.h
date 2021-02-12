@@ -2,6 +2,7 @@
 #define FRONTIER_SEARCH_H_
 
 #include <costmap_2d/costmap_2d.h>
+#include <geometry_msgs/Quaternion.h>
 
 namespace frontier_exploration
 {
@@ -13,6 +14,7 @@ struct Frontier {
   std::uint32_t size;
   double min_distance;
   double cost;
+  double angle;
   geometry_msgs::Point initial;
   geometry_msgs::Point centroid;
   geometry_msgs::Point middle;
@@ -35,14 +37,14 @@ public:
    * @param costmap Reference to costmap data to search.
    */
   FrontierSearch(costmap_2d::Costmap2D* costmap, double potential_scale,
-                 double gain_scale, double min_frontier_size);
+                 double gain_scale, double orientation_scale, double min_frontier_size);
 
   /**
    * @brief Runs search implementation, outward from the start position
    * @param position Initial position to search from
    * @return List of frontiers, if any
    */
-  std::vector<Frontier> searchFrom(geometry_msgs::Point position);
+  std::vector<Frontier> searchFrom(geometry_msgs::Point position, geometry_msgs::Quaternion orientation);
 
 protected:
   /**
@@ -54,7 +56,7 @@ protected:
    * as frontiers
    * @return new frontier
    */
-  Frontier buildNewFrontier(unsigned int initial_cell, unsigned int reference,
+  Frontier buildNewFrontier(unsigned int initial_cell, unsigned int reference, double yaw,
                             std::vector<bool>& frontier_flag);
 
   /**
@@ -79,9 +81,10 @@ protected:
 
 private:
   costmap_2d::Costmap2D* costmap_;
+  double agent_radius;
   unsigned char* map_;
   unsigned int size_x_, size_y_;
-  double potential_scale_, gain_scale_;
+  double potential_scale_, gain_scale_, orientation_scale_;
   double min_frontier_size_;
 };
 }

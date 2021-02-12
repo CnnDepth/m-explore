@@ -12,6 +12,16 @@
   <param name="transform_tolerance" value="0.3"/>
   <param name="min_frontier_size" value="0.25"/>
   <param name="robot_base_frame" value="base_link"/>
-  <param name="agent_radius" value="0.1"/>
+</node>
+
+<node pkg="theta_star_planner" type="theta_star_planner_node" name="planner">
+  <param name="agent_radius" value="0.01"/>
+  <remap from="/map" to="/proj_map"/>
+</node>
+
+<node pkg="theta_star_planner" type="theta_star_planner_test" name="task_publisher">
+</node>
+
+<node pkg="tx2_action_server" type="tx2_action_server_external_driver.py" name="action_server">
 </node>
 </launch>

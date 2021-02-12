@@ -45,6 +45,8 @@
 #include <tf/tf.h>
 #include <tf/transform_listener.h>
 
+//#include "theta_star_planner/map.hpp"
+
 namespace explore
 {
 class Costmap2DClient
@@ -90,6 +92,16 @@ public:
     return &costmap_;
   }
 
+  /*Map* getMapForSearch()
+  {
+    return &map_for_search_;
+  }
+
+  const Map* getMapForSearch() const
+  {
+    return &map_for_search_;
+  }*/
+
   /**
    * @brief  Returns the global frame of the costmap
    * @return The global frame of the costmap
@@ -113,6 +125,7 @@ protected:
   void updatePartialMap(const map_msgs::OccupancyGridUpdate::ConstPtr& msg);
 
   costmap_2d::Costmap2D costmap_;
+  //Map map_for_search_;
 
   const tf::TransformListener* const tf_;  ///< @brief Used for transforming
                                            /// point clouds
