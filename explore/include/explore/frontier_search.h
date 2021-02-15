@@ -1,8 +1,11 @@
 #ifndef FRONTIER_SEARCH_H_
 #define FRONTIER_SEARCH_H_
 
+#include <ros/ros.h>
 #include <costmap_2d/costmap_2d.h>
 #include <geometry_msgs/Quaternion.h>
+#include <nav_msgs/Path.h>
+#include <geometry_msgs/PoseStamped.h>
 
 namespace frontier_exploration
 {
@@ -70,6 +73,8 @@ protected:
   bool isNewFrontierCell(unsigned int idx,
                          const std::vector<bool>& frontier_flag);
 
+  double getDirectionTo(const unsigned int &nbr, const std::vector<int> &prev);
+
   /**
    * @brief computes frontier cost
    * @details cost function is defined by potential_scale and gain_scale
@@ -86,6 +91,8 @@ private:
   unsigned int size_x_, size_y_;
   double potential_scale_, gain_scale_, orientation_scale_;
   double min_frontier_size_;
+  ros::NodeHandle private_nh_;
+  ros::Publisher path_publisher_;
 };
 }
 #endif

@@ -29,7 +29,36 @@ FrontierSearch::FrontierSearch(costmap_2d::Costmap2D* costmap,
   , gain_scale_(gain_scale)
   , orientation_scale_(orientation_scale)
   , min_frontier_size_(min_frontier_size)
+  , private_nh_("~")
 {
+  path_publisher_ = private_nh_.advertise<nav_msgs::Path>("path_to_zero", 10);
+}
+
+double FrontierSearch::getDirectionTo(const unsigned int &nbr, const std::vector<int> &prev)
+{
+  int cur = int(nbr);
+  int from = cur;
+  while (prev[cur] >= 0)
+  {
+    from = cur;
+    cur = prev[cur];
+  }
+  unsigned int cx, cy, fx, fy;
+  double cwx, cwy, fwx, fwy;
+  costmap_->indexToCells(cur, cx, cy);
+  costmap_->indexToCells(from, fx, fy);
+  costmap_->mapToWorld(cx, cy, cwx, cwy);
+  costmap_->mapToWorld(fx, fy, fwx, fwy);
+  return std::atan2(fwy - cwy, fwx - cwx);
+}
+
+double normalize(double angle)
+{
+  double result = angle + 2 * M_PI;
+  if (result > M_PI)
+    result -= 2 * M_PI;
+  if (result > M_PI)
+    result -= 2 * M_PI;
 }
 
 std::vector<Frontier> FrontierSearch::searchFrom(geometry_msgs::Point position, geometry_msgs::Quaternion orientation)
@@ -58,37 +87,52 @@ std::vector<Frontier> FrontierSearch::searchFrom(geometry_msgs::Point position, 
 
   // initialize flag arrays to keep track of visited and frontier cells
   std::vector<bool> frontier_flag(size_x_ * size_y_, false);
-  std::vector<bool> visited_flag(size_x_ * size_y_, false);
+  std::vector<double> distance(size_x_ * size_y_, std::numeric_limits<double>::infinity());
+  std::vector<int> prev(size_x_ * size_y_, -1);
 
   // initialize breadth first search
-  std::queue<unsigned int> bfs;
+  std::priority_queue<std::pair<double, unsigned int> > heap;
 
   // find closest clear cell to start search
   unsigned int clear, pos = costmap_->getIndex(mx, my);
   if (nearestCell(clear, pos, FREE_SPACE, *costmap_)) {
-    bfs.push(clear);
+    heap.push(std::make_pair(0, clear));
   } else {
-    bfs.push(pos);
+    heap.push(std::make_pair(0, pos));
     ROS_WARN("Could not find nearby clear cell to start search");
   }
-  visited_flag[bfs.front()] = true;
+  distance[heap.top().second] = 0;
 
-  while (!bfs.empty()) {
-    unsigned int idx = bfs.front();
-    bfs.pop();
+  while (!heap.empty()) {
+    unsigned int idx = heap.top().second;
+    heap.pop();
 
-    // iterate over 4-connected neighbourhood
-    for (unsigned nbr : nhood4(idx, *costmap_)) {
+    // iterate over 8-connected neighbourhood
+    for (unsigned nbr : nhood8(idx, *costmap_)) {
       // add to queue all free, unvisited cells, use descending search in case
       // initialized on non-free cell
-      if (map_[nbr] <= map_[idx] && !visited_flag[nbr]) {
-        visited_flag[nbr] = true;
-        bfs.push(nbr);
+      unsigned int wx, wy, nx, ny;
+      costmap_->indexToCells(idx, wx, wy);
+      costmap_->indexToCells(nbr, nx, ny);
+      //ROS_INFO("wx, wy, nx, ny: %d, %d, %d, %d", wx, wy, nx, ny);
+      double dx = double(wx) - double(nx);
+      double dy = double(wy) - double(ny);
+      //ROS_INFO("dx, dy: %f, %f", dx, dy);
+      double step = sqrt(dx * dx + dy * dy) * costmap_->getResolution();
+      //ROS_INFO("D[idx]: %f", distance[idx]);
+      //ROS_INFO("Step: %f", step);
+      if ((map_[nbr] <= map_[idx]) && (distance[nbr] > distance[idx] + step)) {
+        distance[nbr] = distance[idx] + step;
+        prev[nbr] = idx;
+        heap.push(std::make_pair(-distance[nbr], nbr));
         // check if cell is new frontier cell (unvisited, NO_INFORMATION, free
         // neighbour)
       } else if (isNewFrontierCell(nbr, frontier_flag)) {
         frontier_flag[nbr] = true;
         Frontier new_frontier = buildNewFrontier(nbr, pos, yaw, frontier_flag);
+        new_frontier.min_distance = distance[idx] + step;
+        double direction_to_frontier = getDirectionTo(idx, prev);
+        new_frontier.angle = std::abs(normalize(direction_to_frontier - yaw));
         if (new_frontier.size * costmap_->getResolution() >=
             min_frontier_size_) {
           frontier_list.push_back(new_frontier);
@@ -105,16 +149,37 @@ std::vector<Frontier> FrontierSearch::searchFrom(geometry_msgs::Point position, 
       frontier_list.begin(), frontier_list.end(),
       [](const Frontier& f1, const Frontier& f2) { return f1.cost < f2.cost; });
 
-  return frontier_list;
-}
+  // visualize path to (0, 0) point
+  costmap_->worldToMap(0, 0, mx, my);
+  unsigned int zero_idx = costmap_->getIndex(mx, my);
+  ROS_INFO("Zero idx: %d", zero_idx);
+  std::vector<int> path;
+  int cur = zero_idx;
+  while (cur >= 0)
+  {
+    path.push_back(cur);
+    cur = prev[cur];
+  }
+  std::reverse(path.begin(), path.end());
+  ROS_INFO("Path to zero contains %d points", path.size());
+  nav_msgs::Path path_msg;
+  geometry_msgs::PoseStamped pose;
+  path_msg.header.frame_id = "map";
+  double wx, wy;
+  for (auto idx : path)
+  {
+    costmap_->indexToCells(idx, mx, my);
+    costmap_->mapToWorld(mx, my, wx, wy);
+    pose.pose.position.x = wx;
+    pose.pose.position.y = wy;
+    path_msg.poses.push_back(pose);
+  }
+  path_publisher_.publish(path_msg);
+  double direction_to_zero = getDirectionTo(zero_idx, prev);
+  ROS_INFO("Direction to zero: %f", direction_to_zero);
+  ROS_INFO("Angle: %f", std::abs(normalize(direction_to_zero - yaw)));
 
-double normalize(double angle)
-{
-  double result = angle + 2 * M_PI;
-  if (result > M_PI)
-    result -= 2 * M_PI;
-  if (result > M_PI)
-    result -= 2 * M_PI;
+  return frontier_list;
 }
 
 Frontier FrontierSearch::buildNewFrontier(unsigned int initial_cell,
@@ -177,7 +242,7 @@ Frontier FrontierSearch::buildNewFrontier(unsigned int initial_cell,
         double diff_y = reference_y - wy;
         double distance = sqrt(diff_x * diff_x + diff_y * diff_y);
         if (distance < output.min_distance) {
-          output.min_distance = distance;
+          //output.min_distance = distance;
           output.middle.x = wx;
           output.middle.y = wy;
           double direction_to_frontier = std::atan2(double(wy) - double(reference_y), double(wx) - double(reference_x));
@@ -220,8 +285,7 @@ double FrontierSearch::frontierCost(const Frontier& frontier)
 {
   std::cout << "Frontier angle: " << frontier.angle << std::endl;
   std::cout << "Frontier distance: " << frontier.min_distance << std::endl;
-  return (potential_scale_ * frontier.min_distance *
-          costmap_->getResolution()) +
+  return (potential_scale_ * frontier.min_distance) +
          (orientation_scale_ * frontier.angle) -
          (gain_scale_ * frontier.size * costmap_->getResolution());
 }
