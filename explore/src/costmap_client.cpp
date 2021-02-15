@@ -39,6 +39,7 @@
 #include <functional>
 #include <mutex>
 #include <string>
+#include <fstream>
 
 namespace explore
 {
@@ -69,6 +70,7 @@ Costmap2DClient::Costmap2DClient(ros::NodeHandle& param_nh,
       [this](const nav_msgs::OccupancyGrid::ConstPtr& msg) {
         updateFullMap(msg);
       });
+  map_pub = subscription_nh.advertise<nav_msgs::OccupancyGrid>("projmap_resized", 10);
   ROS_INFO("Waiting for costmap to become available, topic: %s",
            costmap_topic.c_str());
   auto costmap_msg = ros::topic::waitForMessage<nav_msgs::OccupancyGrid>(
@@ -112,6 +114,48 @@ Costmap2DClient::Costmap2DClient(ros::NodeHandle& param_nh,
   }
 }
 
+void Costmap2DClient::preprocess(const nav_msgs::OccupancyGrid::ConstPtr& msg,
+                                 unsigned int& size_in_cells_x,
+                                 unsigned int& size_in_cells_y,
+                                 double& resolution,
+                                 signed char* &data)
+{
+  size_in_cells_x = int(msg->info.width / 2);
+  size_in_cells_y = int(msg->info.height / 2);
+  resolution = msg->info.resolution * 2;
+  int size = size_in_cells_x * size_in_cells_y;
+  data = new signed char[size];
+  for (int idx = 0; idx < size; idx++)
+  {
+    int i = int(idx / size_in_cells_x);
+    int j = idx % size_in_cells_x;
+    int idx1 = i * 2 * msg->info.width + j * 2;
+    int idx2 = i * 2 * msg->info.width + j * 2 + 1;
+    int idx3 = (i * 2 + 1) * msg->info.width + j * 2;
+    int idx4 = (i * 2 + 1) * msg->info.width + j * 2 + 1;
+    int max_value = std::max(std::max(std::max(msg->data[idx1], msg->data[idx2]), msg->data[idx3]), msg->data[idx4]);
+    data[idx] = max_value;
+    if (data[idx] == 100)
+      for (int ii = i - 1; ii <= i + 1; ii++)
+        for (int jj = j - 1; jj <= j + 1; jj++)
+          if ((ii >= 0) && (ii < size_in_cells_y) && (jj >= 0) && (jj < size_in_cells_x))
+          {
+            data[ii * size_in_cells_x + jj] = 100;
+          }
+  }
+  nav_msgs::OccupancyGrid map_resized;
+  map_resized.info.width = size_in_cells_x;
+  map_resized.info.height = size_in_cells_y;
+  map_resized.info.resolution = resolution;
+  map_resized.info.origin = msg->info.origin;
+  for (int i = 0; i < size; i++)
+  {
+    map_resized.data.push_back(data[i]);
+  }
+  map_resized.header.stamp = msg->header.stamp;
+  map_pub.publish(map_resized);
+}
+
 void Costmap2DClient::updateFullMap(const nav_msgs::OccupancyGrid::ConstPtr& msg)
 {
   global_frame_ = msg->header.frame_id;
@@ -121,6 +165,8 @@ void Costmap2DClient::updateFullMap(const nav_msgs::OccupancyGrid::ConstPtr& msg
   double resolution = msg->info.resolution;
   double origin_x = msg->info.origin.position.x;
   double origin_y = msg->info.origin.position.y;
+  signed char* data;
+  preprocess(msg, size_in_cells_x, size_in_cells_y, resolution, data);
 
   ROS_DEBUG("received full new map, resizing to: %d, %d", size_in_cells_x,
             size_in_cells_y);
@@ -135,11 +181,12 @@ void Costmap2DClient::updateFullMap(const nav_msgs::OccupancyGrid::ConstPtr& msg
   unsigned char* costmap_data = costmap_.getCharMap();
   size_t costmap_size = costmap_.getSizeInCellsX() * costmap_.getSizeInCellsY();
   ROS_DEBUG("full map update, %lu values", costmap_size);
-  for (size_t i = 0; i < costmap_size && i < msg->data.size(); ++i) {
-    unsigned char cell_cost = static_cast<unsigned char>(msg->data[i]);
+  for (size_t i = 0; i < costmap_size; ++i) {
+    unsigned char cell_cost = static_cast<unsigned char>(data[i]);
     costmap_data[i] = cost_translation_table__[cell_cost];
   }
   ROS_DEBUG("map updated, written %lu values", costmap_size);
+  delete data;
 }
 
 void Costmap2DClient::updatePartialMap(
