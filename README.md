@@ -31,3 +31,9 @@ COPYRIGHT
 ---------
 
 Packages are licensed under BSD license. See respective files for details.
+
+## New features in this fork
+
+* Modified frontier cost function - considering angle between robot's orientation and direction to goal
+* **TODO**: More accurate distance estimation - with Dijkstra path search
+* **TODO**: Map preprocessing - smoothing and expanding obstacles
