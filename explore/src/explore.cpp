@@ -205,8 +205,12 @@ void Explore::makePlan()
   auto frontier =
       std::find_if_not(frontiers.begin(), frontiers.end(),
                        [this](const frontier_exploration::Frontier& f) {
-                         return goalOnBlacklist(f.centroid);
+                         return goalOnBlacklist(f.middle);
                        });
+  std::cout << "Frontier blacklist:" << std::endl;
+  for (int i = 0; i < frontier_blacklist_.size(); i++)
+    std::cout << frontier_blacklist_[i].x << ' ' << frontier_blacklist_[i].y << "; ";
+  std::cout << std::endl;
   ROS_DEBUG("Frontier number: %d", frontier - frontiers.begin());
   if (frontier == frontiers.end()) {
     ROS_INFO("All frontiers are in blacklist. Exploration stopped.");
@@ -279,16 +283,16 @@ void Explore::reachedGoal(const actionlib::SimpleClientGoalState& status,
   ROS_DEBUG("Reached goal with status: %s", status.toString().c_str());
   //if (status == actionlib::SimpleClientGoalState::ABORTED) {
   frontier_blacklist_.push_back(frontier_goal);
-  ROS_DEBUG("Adding current goal to black list");
+  ROS_INFO("Add goal (%.3f, %.3f) to blacklist", frontier_goal.x, frontier_goal.y);
   //}
 
   // find new goal immediatelly regardless of planning frequency.
   // execute via timer to prevent dead lock in move_base_client (this is
   // callback for sendGoal, which is called in makePlan). the timer must live
   // until callback is executed.
-  oneshot_ = relative_nh_.createTimer(
+  /*oneshot_ = relative_nh_.createTimer(
       ros::Duration(0, 0), [this](const ros::TimerEvent&) { makePlan(); },
-      true);
+      true);*/
 }
 
 void Explore::start()

@@ -36,6 +36,10 @@ FrontierSearch::FrontierSearch(costmap_2d::Costmap2D* costmap,
 
 double FrontierSearch::getDirectionTo(const unsigned int &nbr, const std::vector<int> &prev)
 {
+  unsigned int cx, cy, fx, fy;
+  double cwx, cwy, fwx, fwy;
+  costmap_->indexToCells(nbr, cx, cy);
+  costmap_->mapToWorld(cx, cy, cwx, cwy);
   int cur = int(nbr);
   int from = cur;
   std::vector<int> path;
@@ -46,8 +50,6 @@ double FrontierSearch::getDirectionTo(const unsigned int &nbr, const std::vector
     path.push_back(cur);
   }
   std::reverse(path.begin(), path.end());
-  unsigned int cx, cy, fx, fy;
-  double cwx, cwy, fwx, fwy;
   double angle = 0, n = 0;
   for (int i = 0; (i < 10) && (i + 1 < path.size()); i++)
   {
@@ -170,7 +172,7 @@ std::vector<Frontier> FrontierSearch::searchFrom(geometry_msgs::Point position, 
     cur = prev[cur];
   }
   std::reverse(path.begin(), path.end());
-  //ROS_INFO("Path to zero contains %d points", path.size());
+  ROS_INFO("Path to zero contains %d points", path.size());
   nav_msgs::Path path_msg;
   geometry_msgs::PoseStamped pose;
   path_msg.header.frame_id = "map";
@@ -185,8 +187,8 @@ std::vector<Frontier> FrontierSearch::searchFrom(geometry_msgs::Point position, 
   }
   path_publisher_.publish(path_msg);
   double direction_to_zero = getDirectionTo(zero_idx, prev);
-  //ROS_INFO("Direction to zero: %f", direction_to_zero);
-  //ROS_INFO("Angle: %f", std::abs(normalize(direction_to_zero - yaw)));
+  ROS_INFO("Direction to zero: %f", direction_to_zero);
+  ROS_INFO("Angle: %f", std::abs(normalize(direction_to_zero - yaw)));
 
   return frontier_list;
 }
@@ -251,7 +253,7 @@ Frontier FrontierSearch::buildNewFrontier(unsigned int initial_cell,
         double diff_y = reference_y - wy;
         double distance = sqrt(diff_x * diff_x + diff_y * diff_y);
         if (distance < output.min_distance) {
-          //output.min_distance = distance;
+          output.min_distance = distance;
           output.middle.x = wx;
           output.middle.y = wy;
           double direction_to_frontier = std::atan2(double(wy) - double(reference_y), double(wx) - double(reference_x));
