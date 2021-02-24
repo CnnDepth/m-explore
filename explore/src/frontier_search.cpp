@@ -38,18 +38,27 @@ double FrontierSearch::getDirectionTo(const unsigned int &nbr, const std::vector
 {
   int cur = int(nbr);
   int from = cur;
+  std::vector<int> path;
   while (prev[cur] >= 0)
   {
     from = cur;
     cur = prev[cur];
+    path.push_back(cur);
   }
+  std::reverse(path.begin(), path.end());
   unsigned int cx, cy, fx, fy;
   double cwx, cwy, fwx, fwy;
-  costmap_->indexToCells(cur, cx, cy);
-  costmap_->indexToCells(from, fx, fy);
-  costmap_->mapToWorld(cx, cy, cwx, cwy);
-  costmap_->mapToWorld(fx, fy, fwx, fwy);
-  return std::atan2(fwy - cwy, fwx - cwx);
+  double angle = 0, n = 0;
+  for (int i = 0; (i < 10) && (i + 1 < path.size()); i++)
+  {
+    costmap_->indexToCells(path[i], cx, cy);
+    costmap_->indexToCells(path[i + 1], fx, fy);
+    costmap_->mapToWorld(cx, cy, cwx, cwy);
+    costmap_->mapToWorld(fx, fy, fwx, fwy);
+    angle += std::atan2(fwy - cwy, fwx - cwx);
+    n += 1;
+  }
+  return angle / n;
 }
 
 double normalize(double angle)
@@ -152,7 +161,7 @@ std::vector<Frontier> FrontierSearch::searchFrom(geometry_msgs::Point position, 
   // visualize path to (0, 0) point
   costmap_->worldToMap(0, 0, mx, my);
   unsigned int zero_idx = costmap_->getIndex(mx, my);
-  ROS_INFO("Zero idx: %d", zero_idx);
+  //ROS_INFO("Zero idx: %d", zero_idx);
   std::vector<int> path;
   int cur = zero_idx;
   while (cur >= 0)
@@ -161,7 +170,7 @@ std::vector<Frontier> FrontierSearch::searchFrom(geometry_msgs::Point position, 
     cur = prev[cur];
   }
   std::reverse(path.begin(), path.end());
-  ROS_INFO("Path to zero contains %d points", path.size());
+  //ROS_INFO("Path to zero contains %d points", path.size());
   nav_msgs::Path path_msg;
   geometry_msgs::PoseStamped pose;
   path_msg.header.frame_id = "map";
@@ -176,8 +185,8 @@ std::vector<Frontier> FrontierSearch::searchFrom(geometry_msgs::Point position, 
   }
   path_publisher_.publish(path_msg);
   double direction_to_zero = getDirectionTo(zero_idx, prev);
-  ROS_INFO("Direction to zero: %f", direction_to_zero);
-  ROS_INFO("Angle: %f", std::abs(normalize(direction_to_zero - yaw)));
+  //ROS_INFO("Direction to zero: %f", direction_to_zero);
+  //ROS_INFO("Angle: %f", std::abs(normalize(direction_to_zero - yaw)));
 
   return frontier_list;
 }
@@ -283,8 +292,6 @@ bool FrontierSearch::isNewFrontierCell(unsigned int idx,
 
 double FrontierSearch::frontierCost(const Frontier& frontier)
 {
-  std::cout << "Frontier angle: " << frontier.angle << std::endl;
-  std::cout << "Frontier distance: " << frontier.min_distance << std::endl;
   return (potential_scale_ * frontier.min_distance) +
          (orientation_scale_ * frontier.angle) -
          (gain_scale_ * frontier.size * costmap_->getResolution());

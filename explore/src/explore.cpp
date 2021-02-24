@@ -39,6 +39,8 @@
 #include <cstdio>
 #include <thread>
 
+#define EPS 0.1
+
 inline static bool operator==(const geometry_msgs::Point& one,
                               const geometry_msgs::Point& two)
 {
@@ -185,8 +187,8 @@ void Explore::makePlan()
   auto frontiers = search_.searchFrom(pose.position, pose.orientation);
   ROS_DEBUG("found %lu frontiers", frontiers.size());
   for (size_t i = 0; i < frontiers.size(); ++i) {
-    ROS_DEBUG("frontier %zd cost: %f", i, frontiers[i].cost);
-    ROS_DEBUG("frontier %zd angle: %f", i, frontiers[i].angle);
+    ROS_DEBUG("frontier %zd cost: %.3f", i, frontiers[i].cost);
+    ROS_DEBUG("frontier %zd coords: %.3f, %.3f", i, frontiers[i].middle.x, frontiers[i].middle.y);    
   }
 
   if (frontiers.empty()) {
@@ -205,17 +207,21 @@ void Explore::makePlan()
                        [this](const frontier_exploration::Frontier& f) {
                          return goalOnBlacklist(f.centroid);
                        });
+  ROS_DEBUG("Frontier number: %d", frontier - frontiers.begin());
   if (frontier == frontiers.end()) {
     ROS_INFO("All frontiers are in blacklist. Exploration stopped.");
     stop();
     return;
   }
-  geometry_msgs::Point target_position = frontier->centroid;
+  ROS_INFO("Frontier middle: %.3f, %.3f", frontier->middle.x, frontier->middle.y);
+  ROS_INFO("Frontier centroid: %.3f, %.3f", frontier->centroid.x, frontier->centroid.y);
+  geometry_msgs::Point target_position = frontier->middle;
 
   // time out if we are not making any progress
   bool same_goal = (target_position == prev_goal_);
   prev_goal_ = target_position;
-  if (!same_goal || prev_distance_ > frontier->min_distance) {
+  ROS_INFO("Goal coordinates: %.3f, %.3f", target_position.x, target_position.y);
+  if (!same_goal || prev_distance_ > frontier->min_distance + EPS) {
     // we have different goal or we made some progress
     last_progress_ = ros::Time::now();
     prev_distance_ = frontier->min_distance;
@@ -240,6 +246,7 @@ void Explore::makePlan()
   goal.target_pose.pose.orientation.w = 1.;
   goal.target_pose.header.frame_id = costmap_client_.getGlobalFrameID();
   goal.target_pose.header.stamp = ros::Time::now();
+  ROS_INFO("Send goal with coords: %.3f, %.3f", target_position.x, target_position.y);
   move_base_client_.sendGoal(
       goal, [this, target_position](
                 const actionlib::SimpleClientGoalState& status,
@@ -270,10 +277,10 @@ void Explore::reachedGoal(const actionlib::SimpleClientGoalState& status,
                           const geometry_msgs::Point& frontier_goal)
 {
   ROS_DEBUG("Reached goal with status: %s", status.toString().c_str());
-  if (status == actionlib::SimpleClientGoalState::ABORTED) {
-    frontier_blacklist_.push_back(frontier_goal);
-    ROS_DEBUG("Adding current goal to black list");
-  }
+  //if (status == actionlib::SimpleClientGoalState::ABORTED) {
+  frontier_blacklist_.push_back(frontier_goal);
+  ROS_DEBUG("Adding current goal to black list");
+  //}
 
   // find new goal immediatelly regardless of planning frequency.
   // execute via timer to prevent dead lock in move_base_client (this is
