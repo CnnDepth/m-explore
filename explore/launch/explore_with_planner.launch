@@ -23,6 +23,6 @@
 </node>
 
 <node pkg="tx2_action_server" type="tx2_action_server_external_driver.py" name="action_server" output="screen">
-  <param name="tolerance" value="2"/>
+  <param name="tolerance" value="1"/>
 </node>
 </launch>

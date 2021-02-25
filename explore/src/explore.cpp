@@ -222,7 +222,31 @@ void Explore::makePlan()
   geometry_msgs::Point target_position = frontier->middle;
 
   // time out if we are not making any progress
-  bool same_goal = (target_position == prev_goal_);
+  double diff_x = target_position.x - prev_goal_.x;
+  double diff_y = target_position.y - prev_goal_.y;
+  double dst_btw_goals = sqrt(diff_x * diff_x + diff_y * diff_y);
+  bool same_goal = (dst_btw_goals < 1);
+
+  // if we found the same goal, let's find the next one
+  if (same_goal) {
+    ROS_INFO("Found the same goal again. Trying to find next goal...");
+    frontier = std::next(frontier);
+    while ((frontier != frontiers.end()) && (goalOnBlacklist(frontier->middle)))
+    {
+      frontier = std::next(frontier);
+    }
+    if (frontier != frontiers.end())
+    {
+      target_position = frontier->middle;
+      ROS_INFO("Found goal number %d", frontier - frontiers.begin());
+    }
+    else
+    {
+      ROS_WARN("Next goal not found");
+      return;
+    }
+  }
+
   prev_goal_ = target_position;
   ROS_INFO("Goal coordinates: %.3f, %.3f", target_position.x, target_position.y);
   if (!same_goal || prev_distance_ > frontier->min_distance + EPS) {
@@ -235,12 +259,6 @@ void Explore::makePlan()
     frontier_blacklist_.push_back(target_position);
     ROS_INFO("Adding current goal to black list");
     makePlan();
-    return;
-  }
-
-  // we don't need to do anything if we still pursuing the same goal
-  if (same_goal) {
-    ROS_INFO("Found the same goal again. No actions will be performed.");
     return;
   }
 
@@ -281,10 +299,10 @@ void Explore::reachedGoal(const actionlib::SimpleClientGoalState& status,
                           const geometry_msgs::Point& frontier_goal)
 {
   ROS_DEBUG("Reached goal with status: %s", status.toString().c_str());
-  //if (status == actionlib::SimpleClientGoalState::ABORTED) {
-  frontier_blacklist_.push_back(frontier_goal);
-  ROS_INFO("Add goal (%.3f, %.3f) to blacklist", frontier_goal.x, frontier_goal.y);
-  //}
+  if (status == actionlib::SimpleClientGoalState::ABORTED) {
+    frontier_blacklist_.push_back(frontier_goal);
+    ROS_INFO("Add goal (%.3f, %.3f) to blacklist", frontier_goal.x, frontier_goal.y);
+  }
 
   // find new goal immediatelly regardless of planning frequency.
   // execute via timer to prevent dead lock in move_base_client (this is
