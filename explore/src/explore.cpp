@@ -88,6 +88,8 @@ Explore::Explore()
   exploring_timer_ =
       relative_nh_.createTimer(ros::Duration(1. / planner_frequency_),
                                [this](const ros::TimerEvent&) { makePlan(); });
+  prev_goal_.x = -10000;
+  prev_goal_.y = -10000;
 }
 
 Explore::~Explore()
@@ -205,12 +207,8 @@ void Explore::makePlan()
   auto frontier =
       std::find_if_not(frontiers.begin(), frontiers.end(),
                        [this](const frontier_exploration::Frontier& f) {
-                         return goalOnBlacklist(f.middle);
+                         return goalHasReached(f.middle) || goalOnBlacklist(f.middle);
                        });
-  std::cout << "Frontier blacklist:" << std::endl;
-  for (int i = 0; i < frontier_blacklist_.size(); i++)
-    std::cout << frontier_blacklist_[i].x << ' ' << frontier_blacklist_[i].y << "; ";
-  std::cout << std::endl;
   ROS_DEBUG("Frontier number: %d", frontier - frontiers.begin());
   if (frontier == frontiers.end()) {
     ROS_INFO("All frontiers are in blacklist. Exploration stopped.");
@@ -229,22 +227,9 @@ void Explore::makePlan()
 
   // if we found the same goal, let's find the next one
   if (same_goal) {
-    ROS_INFO("Found the same goal again. Trying to find next goal...");
+    ROS_INFO("Found the same goal again. No actions will be performed");
     frontier = std::next(frontier);
-    while ((frontier != frontiers.end()) && (goalOnBlacklist(frontier->middle)))
-    {
-      frontier = std::next(frontier);
-    }
-    if (frontier != frontiers.end())
-    {
-      target_position = frontier->middle;
-      ROS_INFO("Found goal number %d", frontier - frontiers.begin());
-    }
-    else
-    {
-      ROS_WARN("Next goal not found");
-      return;
-    }
+    return;
   }
 
   prev_goal_ = target_position;
@@ -294,11 +279,28 @@ bool Explore::goalOnBlacklist(const geometry_msgs::Point& goal)
   return false;
 }
 
+bool Explore::goalHasReached(const geometry_msgs::Point& goal)
+{
+  constexpr static size_t tolerace = 5;
+  costmap_2d::Costmap2D* costmap2d = costmap_client_.getCostmap();
+  for (auto it = reached_list_.size() >= 10 ? reached_list_.end() - 10 : reached_list_.begin(); it != reached_list_.end(); ++it)
+  {
+    double x_diff = fabs(goal.x - it->x);
+    double y_diff = fabs(goal.y - it->y);
+
+    if (x_diff < tolerace * costmap2d->getResolution() &&
+        y_diff < tolerace * costmap2d->getResolution())
+      return true;
+  }
+  return false;
+}
+
 void Explore::reachedGoal(const actionlib::SimpleClientGoalState& status,
                           const move_base_msgs::MoveBaseResultConstPtr&,
                           const geometry_msgs::Point& frontier_goal)
 {
-  ROS_DEBUG("Reached goal with status: %s", status.toString().c_str());
+  ROS_INFO("Reached goal with status: %s", status.toString().c_str());
+  reached_list_.push_back(frontier_goal);
   if (status == actionlib::SimpleClientGoalState::ABORTED) {
     frontier_blacklist_.push_back(frontier_goal);
     ROS_INFO("Add goal (%.3f, %.3f) to blacklist", frontier_goal.x, frontier_goal.y);
@@ -308,9 +310,9 @@ void Explore::reachedGoal(const actionlib::SimpleClientGoalState& status,
   // execute via timer to prevent dead lock in move_base_client (this is
   // callback for sendGoal, which is called in makePlan). the timer must live
   // until callback is executed.
-  /*oneshot_ = relative_nh_.createTimer(
+  oneshot_ = relative_nh_.createTimer(
       ros::Duration(0, 0), [this](const ros::TimerEvent&) { makePlan(); },
-      true);*/
+      true);
 }
 
 void Explore::start()

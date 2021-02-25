@@ -87,6 +87,8 @@ private:
 
   bool goalOnBlacklist(const geometry_msgs::Point& goal);
 
+  bool goalHasReached(const geometry_msgs::Point& goal);
+
   ros::NodeHandle private_nh_;
   ros::NodeHandle relative_nh_;
   ros::Publisher marker_array_publisher_;
@@ -101,6 +103,7 @@ private:
   ros::Timer oneshot_;
 
   std::vector<geometry_msgs::Point> frontier_blacklist_;
+  std::vector<geometry_msgs::Point> reached_list_;
   geometry_msgs::Point prev_goal_;
   double prev_distance_;
   ros::Time last_progress_;
