@@ -207,7 +207,7 @@ void Explore::makePlan()
   auto frontier =
       std::find_if_not(frontiers.begin(), frontiers.end(),
                        [this](const frontier_exploration::Frontier& f) {
-                         return goalHasReached(f.middle) || goalOnBlacklist(f.middle);
+                         return goalHasReached(f.centroid) || goalOnBlacklist(f.centroid);
                        });
   ROS_DEBUG("Frontier number: %d", frontier - frontiers.begin());
   if (frontier == frontiers.end()) {
@@ -217,13 +217,13 @@ void Explore::makePlan()
   }
   ROS_INFO("Frontier middle: %.3f, %.3f", frontier->middle.x, frontier->middle.y);
   ROS_INFO("Frontier centroid: %.3f, %.3f", frontier->centroid.x, frontier->centroid.y);
-  geometry_msgs::Point target_position = frontier->middle;
+  geometry_msgs::Point target_position = frontier->centroid;
 
   // time out if we are not making any progress
   double diff_x = target_position.x - prev_goal_.x;
   double diff_y = target_position.y - prev_goal_.y;
   double dst_btw_goals = sqrt(diff_x * diff_x + diff_y * diff_y);
-  bool same_goal = (dst_btw_goals < 1);
+  bool same_goal = (dst_btw_goals < 0.1);
 
   // if we found the same goal, let's find the next one
   if (same_goal) {
