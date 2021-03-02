@@ -63,6 +63,9 @@ Costmap2DClient::Costmap2DClient(ros::NodeHandle& param_nh,
                  std::string("base_link"));
   // transform tolerance is used for all tf transforms here
   param_nh.param("transform_tolerance", transform_tolerance_, 0.3);
+  // map compression degree param
+  param_nh.param("map_compression", map_compression_, 2);
+  param_nh.param("expand_obstacles", expand_obstacles_, 1);
 
   /* initialize costmap */
   costmap_sub_ = subscription_nh.subscribe<nav_msgs::OccupancyGrid>(
@@ -120,29 +123,41 @@ void Costmap2DClient::preprocess(const nav_msgs::OccupancyGrid::ConstPtr& msg,
                                  double& resolution,
                                  signed char* &data)
 {
-  size_in_cells_x = int(msg->info.width / 2);
-  size_in_cells_y = int(msg->info.height / 2);
-  resolution = msg->info.resolution * 2;
+  size_in_cells_x = int(msg->info.width / map_compression_);
+  size_in_cells_y = int(msg->info.height / map_compression_);
+  resolution = msg->info.resolution * map_compression_;
   int size = size_in_cells_x * size_in_cells_y;
   data = new signed char[size];
+  // fill data from msg with max-pooling method
   for (int idx = 0; idx < size; idx++)
   {
     int i = int(idx / size_in_cells_x);
     int j = idx % size_in_cells_x;
-    int idx1 = i * 2 * msg->info.width + j * 2;
-    int idx2 = i * 2 * msg->info.width + j * 2 + 1;
-    int idx3 = (i * 2 + 1) * msg->info.width + j * 2;
-    int idx4 = (i * 2 + 1) * msg->info.width + j * 2 + 1;
-    int max_value = std::max(std::max(std::max(msg->data[idx1], msg->data[idx2]), msg->data[idx3]), msg->data[idx4]);
+    int max_value = -100;
+    for (int ii = 0; ii < map_compression_; ii++)
+      for (int jj = 0; jj < map_compression_; jj++)
+      {
+        int idx_msg = (i * map_compression_ + ii) * msg->info.width + (j * map_compression_ + jj);
+        if (msg->data[idx_msg] > max_value)
+          max_value = msg->data[idx_msg];
+      }
     data[idx] = max_value;
-    if (data[idx] == 100)
-      for (int ii = i - 1; ii <= i + 1; ii++)
-        for (int jj = j - 1; jj <= j + 1; jj++)
-          if ((ii >= 0) && (ii < size_in_cells_y) && (jj >= 0) && (jj < size_in_cells_x))
-          {
-            data[ii * size_in_cells_x + jj] = 100;
-          }
   }
+  // expand obstacles
+  for (int idx = 0; idx < size; idx++)
+    if (data[idx] == 100)
+    {
+      int i = int(idx / size_in_cells_x);
+      int j = idx % size_in_cells_x;
+      for (int ii = i - expand_obstacles_; ii <= i + expand_obstacles_; ii++)
+        for (int jj = j - expand_obstacles_; jj <= j + expand_obstacles_; jj++)
+          if ((ii >= 0) && (ii < size_in_cells_y) && (jj >= 0) && (jj < size_in_cells_x) && (data[ii * size_in_cells_x + jj] != 100))
+            data[ii * size_in_cells_x + jj] = 99;
+    }
+  for (int idx = 0; idx < size; idx++)
+    if (data[idx] == 99)
+      data[idx] = 100;
+  // publish processed map
   nav_msgs::OccupancyGrid map_resized;
   map_resized.info.width = size_in_cells_x;
   map_resized.info.height = size_in_cells_y;
