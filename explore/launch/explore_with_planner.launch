@@ -1,5 +1,5 @@
 <launch>
-<node pkg="explore_lite" type="explore" respawn="false" name="explore" output="screen">
+<node pkg="explore_lite" type="explore" respawn="false" name="explore">
   <param name="robot_base_frame" value="base_link"/>
   <param name="costmap_topic" value="proj_map"/>
   <param name="costmap_updates_topic" value="map_updates"/>
@@ -24,5 +24,7 @@
 
 <node pkg="tx2_action_server" type="tx2_action_server_external_driver.py" name="action_server" output="screen">
   <param name="tolerance" value="1"/>
+  <param name="rate" value="5"/>
+  <param name="max_path_fails" value="5"/>
 </node>
 </launch>
