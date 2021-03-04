@@ -41,9 +41,14 @@
 #include <geometry_msgs/Pose.h>
 #include <map_msgs/OccupancyGridUpdate.h>
 #include <nav_msgs/OccupancyGrid.h>
+#include <geometry_msgs/PoseStamped.h>
+#include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include <ros/ros.h>
 #include <tf/tf.h>
 #include <tf/transform_listener.h>
+
+#include "theta_star_planner/map.hpp"
+#include "theta_star_planner/geom.hpp"
 
 namespace explore
 {
@@ -90,6 +95,16 @@ public:
     return &costmap_;
   }
 
+  Map* getMapForSight()
+  {
+    return &map_for_sight_;
+  }
+
+  const Map* getMapForSight() const
+  {
+    return &map_for_sight_;
+  }
+
   /**
    * @brief  Returns the global frame of the costmap
    * @return The global frame of the costmap
@@ -108,6 +123,8 @@ public:
     return robot_base_frame_;
   }
 
+  //double x_st, y_st, x_gl, y_gl;
+
 protected:
   void updateFullMap(const nav_msgs::OccupancyGrid::ConstPtr& msg);
   void updatePartialMap(const map_msgs::OccupancyGridUpdate::ConstPtr& msg);
@@ -116,9 +133,11 @@ protected:
                   unsigned int& size_in_cells_y,
                   double& resolution,
                   signed char* &data);
+  //void startCallback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& msg);
+  //void goalCallback(const geometry_msgs::PoseStamped::ConstPtr& msg);
 
   costmap_2d::Costmap2D costmap_;
-  //Map map_for_search_;
+  Map map_for_sight_;
 
   const tf::TransformListener* const tf_;  ///< @brief Used for transforming
                                            /// point clouds
@@ -132,6 +151,8 @@ private:
   // will be unsubscribed at destruction
   ros::Subscriber costmap_sub_;
   ros::Subscriber costmap_updates_sub_;
+  //ros::Subscriber start_sub;
+  //ros::Subscriber goal_sub;
   ros::Publisher map_pub;
 };
 

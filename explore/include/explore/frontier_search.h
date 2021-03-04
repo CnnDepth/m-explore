@@ -7,6 +7,9 @@
 #include <nav_msgs/Path.h>
 #include <geometry_msgs/PoseStamped.h>
 
+#include "theta_star_planner/line_of_sight.hpp"
+#include "theta_star_planner/map.hpp"
+
 namespace frontier_exploration
 {
 /**
@@ -22,6 +25,7 @@ struct Frontier {
   geometry_msgs::Point centroid;
   geometry_msgs::Point middle;
   std::vector<geometry_msgs::Point> points;
+  std::vector<geometry_msgs::Point> path_to_centroid;
 };
 
 /**
@@ -47,7 +51,7 @@ public:
    * @param position Initial position to search from
    * @return List of frontiers, if any
    */
-  std::vector<Frontier> searchFrom(geometry_msgs::Point position, geometry_msgs::Quaternion orientation);
+  std::vector<Frontier> searchFrom(geometry_msgs::Point position, geometry_msgs::Quaternion orientation, Map* map_for_sight);
 
 protected:
   /**
@@ -75,6 +79,10 @@ protected:
 
   double getDirectionTo(const unsigned int &nbr, const std::vector<int> &prev);
 
+  void fillPathToCentroid(Frontier &f, const std::vector<int> &prev);
+
+  void smoothPath(frontier_exploration::Frontier &f, Map* map_for_sight_ptr);
+
   /**
    * @brief computes frontier cost
    * @details cost function is defined by potential_scale and gain_scale
@@ -93,6 +101,7 @@ private:
   double min_frontier_size_;
   ros::NodeHandle private_nh_;
   ros::Publisher path_publisher_;
+  LineOfSight vis_checker_;
 };
 }
 #endif

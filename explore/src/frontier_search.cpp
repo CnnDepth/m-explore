@@ -32,6 +32,7 @@ FrontierSearch::FrontierSearch(costmap_2d::Costmap2D* costmap,
   , private_nh_("~")
 {
   path_publisher_ = private_nh_.advertise<nav_msgs::Path>("path_to_zero", 10);
+  vis_checker_ = LineOfSight(0.01);
 }
 
 double FrontierSearch::getDirectionTo(const unsigned int &nbr, const std::vector<int> &prev)
@@ -72,7 +73,123 @@ double normalize(double angle)
     result -= 2 * M_PI;
 }
 
-std::vector<Frontier> FrontierSearch::searchFrom(geometry_msgs::Point position, geometry_msgs::Quaternion orientation)
+void FrontierSearch::fillPathToCentroid(Frontier &f, const std::vector<int> &prev)
+{
+  unsigned int mx, my;
+  double wx, wy;
+  costmap_->worldToMap(f.centroid.x, f.centroid.y, mx, my);
+  int centroid_idx = costmap_->getIndex(mx, my);
+  std::vector<int> path;
+  int cur = centroid_idx;
+  // if centroid is unreachable, find nearest reachable point
+  if (prev[cur] == -1)
+  {
+    int nearest_border = std::min(std::min(mx, my),
+                                  std::min(costmap_->getSizeInCellsX() - mx, costmap_->getSizeInCellsY() - my));
+    int mx_new = -1000, my_new = -1000;
+    int idx;
+    for (int i = 1; i < nearest_border; i++)
+    {
+      for (int j = -i; j <= 0; j++)
+      {
+        idx = costmap_->getIndex(mx + j, my + (j + i));
+        if (prev[idx] > -1)
+        {
+          mx_new = mx + j;
+          my_new = my + j + i;
+        }
+        idx = costmap_->getIndex(mx + j, my - (j + i));
+        if (prev[idx] > -1)
+        {
+          mx_new = mx + j;
+          my_new = my - (j + i);
+        }
+        idx = costmap_->getIndex(mx - j, my + (j + i));
+        if (prev[idx] > -1)
+        {
+          mx_new = mx - j;
+          my_new = my + j + i;
+        }
+        idx = costmap_->getIndex(mx - j, my - (j + i));
+        if (prev[idx] > -1)
+        {
+          mx_new = mx - j;
+          my_new = my - (j + i);
+        }
+      }
+      if (mx_new > -1000)
+      {
+        mx = mx_new;
+        my = my_new;
+        cur = costmap_->getIndex(mx, my);
+        break;
+      }
+    }
+  }
+  // restore path to centroid
+  while (cur >= 0)
+  {
+    path.push_back(cur);
+    cur = prev[cur];
+  }
+  std::reverse(path.begin(), path.end());
+  // fill path in world coords
+  for (size_t i = 0; i < path.size(); ++i)
+  {
+    geometry_msgs::Point p;
+    costmap_->indexToCells(path[i], mx, my);
+    costmap_->mapToWorld(mx, my, wx, wy);
+    p.x = wx; p.y = wy;
+    f.path_to_centroid.push_back(p);
+  }
+}
+
+void FrontierSearch::smoothPath(frontier_exploration::Frontier &f, Map* map_for_sight_ptr)
+{
+  if (f.path_to_centroid.size() < 2)
+  {
+    ROS_WARN("Path to frontier's centroid is empty!!!");
+    return;
+  }
+
+  // translate path to map coords
+  unsigned int i, j;
+  std::vector<std::pair<int, int> > path_in_map_coords;
+  for (auto pt : f.path_to_centroid)
+  {
+    costmap_->worldToMap(pt.x, pt.y, i, j);
+    path_in_map_coords.push_back(std::make_pair(i, j));
+  }
+
+  // smooth path using vis_checker_
+  std::vector<std::pair<int, int> > path_smoothed;
+  int k = 0;
+  path_smoothed.push_back(path_in_map_coords[0]);
+  for (size_t i = 1; i + 1 < path_in_map_coords.size(); ++i)
+  {
+    if (!vis_checker_.checkLine(path_smoothed[k].second, path_smoothed[k].first, 
+                                path_in_map_coords[i].second, path_in_map_coords[i].first,
+                                *map_for_sight_ptr))
+    {
+      k++;
+      path_smoothed.push_back(path_in_map_coords[i]);
+    }
+  }
+  path_smoothed.push_back(path_in_map_coords[path_in_map_coords.size() - 1]);
+
+  // translate smoothed path into world coords
+  f.path_to_centroid.clear();
+  double wx, wy;
+  for (auto pt : path_smoothed)
+  {
+    costmap_->mapToWorld(pt.first, pt.second, wx, wy);
+    geometry_msgs::Point p;
+    p.x = wx; p.y = wy;
+    f.path_to_centroid.push_back(p);
+  }
+}
+
+std::vector<Frontier> FrontierSearch::searchFrom(geometry_msgs::Point position, geometry_msgs::Quaternion orientation, Map* map_for_sight)
 {
   std::vector<Frontier> frontier_list;
 
@@ -142,12 +259,34 @@ std::vector<Frontier> FrontierSearch::searchFrom(geometry_msgs::Point position, 
         frontier_flag[nbr] = true;
         Frontier new_frontier = buildNewFrontier(nbr, pos, yaw, frontier_flag);
         new_frontier.min_distance = distance[idx] + step;
-        double direction_to_frontier = getDirectionTo(idx, prev);
-        new_frontier.angle = std::abs(normalize(direction_to_frontier - yaw));
+        //double direction_to_frontier = getDirectionTo(idx, prev);
+        //new_frontier.angle = std::abs(normalize(direction_to_frontier - yaw));
         if (new_frontier.size * costmap_->getResolution() >=
             min_frontier_size_) {
           frontier_list.push_back(new_frontier);
         }
+      }
+    }
+  }
+
+  // smooth path to frontiers and re-estimate distances and directions
+  for (size_t i = 0; i < frontier_list.size(); ++i) {
+    fillPathToCentroid(frontier_list[i], prev);
+    smoothPath(frontier_list[i], map_for_sight);
+    if (frontier_list[i].path_to_centroid.size() > 1)
+    {
+      // re-estimate angle
+      double dy = frontier_list[i].path_to_centroid[1].y - frontier_list[i].path_to_centroid[0].y;
+      double dx = frontier_list[i].path_to_centroid[1].x - frontier_list[i].path_to_centroid[0].x;
+      double direction_to_frontier = std::atan2(dy, dx);
+      frontier_list[i].angle = std::abs(normalize(direction_to_frontier - yaw));
+      // re-estimate distance
+      frontier_list[i].min_distance = 0;
+      for (size_t j = 1; j < frontier_list[i].path_to_centroid.size(); ++j)
+      {
+        dy = frontier_list[i].path_to_centroid[j].y - frontier_list[i].path_to_centroid[j - 1].y;
+        dx = frontier_list[i].path_to_centroid[j].x - frontier_list[i].path_to_centroid[j - 1].x;
+        frontier_list[i].min_distance += sqrt(dx * dx + dy * dy);
       }
     }
   }
@@ -160,35 +299,18 @@ std::vector<Frontier> FrontierSearch::searchFrom(geometry_msgs::Point position, 
       frontier_list.begin(), frontier_list.end(),
       [](const Frontier& f1, const Frontier& f2) { return f1.cost < f2.cost; });
 
-  // visualize path to (0, 0) point
-  costmap_->worldToMap(0, 0, mx, my);
-  unsigned int zero_idx = costmap_->getIndex(mx, my);
-  //ROS_INFO("Zero idx: %d", zero_idx);
-  std::vector<int> path;
-  int cur = zero_idx;
-  while (cur >= 0)
-  {
-    path.push_back(cur);
-    cur = prev[cur];
-  }
-  std::reverse(path.begin(), path.end());
-  ROS_INFO("Path to zero contains %d points", path.size());
-  nav_msgs::Path path_msg;
+  // visualize path to centroid of first frontier
+  /*nav_msgs::Path path_msg;
   geometry_msgs::PoseStamped pose;
   path_msg.header.frame_id = "map";
   double wx, wy;
-  for (auto idx : path)
+  for (auto pt : frontier_list[0].path_to_centroid)
   {
-    costmap_->indexToCells(idx, mx, my);
-    costmap_->mapToWorld(mx, my, wx, wy);
-    pose.pose.position.x = wx;
-    pose.pose.position.y = wy;
+    pose.pose.position.x = pt.x;
+    pose.pose.position.y = pt.y;
     path_msg.poses.push_back(pose);
   }
-  path_publisher_.publish(path_msg);
-  double direction_to_zero = getDirectionTo(zero_idx, prev);
-  ROS_INFO("Direction to zero: %f", direction_to_zero);
-  ROS_INFO("Angle: %f", std::abs(normalize(direction_to_zero - yaw)));
+  path_publisher_.publish(path_msg);*/
 
   return frontier_list;
 }

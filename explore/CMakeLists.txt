@@ -14,6 +14,7 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   tf
   visualization_msgs
+  theta_star_planner
 )
 
 ###################################
@@ -44,6 +45,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 ## Specify additional locations of header files
 include_directories(
   ${catkin_INCLUDE_DIRS}
+  ${theta_star_planner_INCLUDE_DIRS}
   include
 )
 
@@ -54,6 +56,7 @@ add_executable(explore
 )
 add_dependencies(explore ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(explore ${catkin_LIBRARIES})
+target_link_libraries(explore theta_star_planner_node_lib)
 
 #############
 ## Install ##

@@ -21,9 +21,6 @@
   <remap from="/map" to="/projmap_resized"/>
 </node>
 
-<node pkg="theta_star_planner" type="theta_star_planner_test" name="task_publisher">
-</node>
-
 <node pkg="tx2_action_server" type="tx2_action_server_external_driver.py" name="action_server" output="screen">
   <param name="tolerance" value="1"/>
   <param name="rate" value="5"/>

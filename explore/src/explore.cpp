@@ -37,6 +37,7 @@
 
 #include <explore/explore.h>
 #include <cstdio>
+#include <cassert>
 #include <thread>
 
 #define EPS 0.1
@@ -78,7 +79,7 @@ Explore::Explore()
   if (visualize_) {
     marker_array_publisher_ =
         private_nh_.advertise<visualization_msgs::MarkerArray>("frontiers", 10);
-    path_to_goal_publisher_ = private_nh_.advertise<nav_msgs::Path>("path", 10);
+    path_to_goal_publisher_ = private_nh_.advertise<nav_msgs::Path>("path_to_goal", 10);
   }
 
   ROS_INFO("Waiting to connect to move_base server");
@@ -183,10 +184,13 @@ void Explore::visualizeFrontiers(
 
 void Explore::makePlan()
 {
+  ros::spinOnce();
+  auto start_time = ros::Time::now();
   // find frontiers
   auto pose = costmap_client_.getRobotPose();
   // get frontiers sorted according to cost
-  auto frontiers = search_.searchFrom(pose.position, pose.orientation);
+  auto map_for_sight_ptr = costmap_client_.getMapForSight();
+  auto frontiers = search_.searchFrom(pose.position, pose.orientation, map_for_sight_ptr);
   ROS_DEBUG("found %lu frontiers", frontiers.size());
   for (size_t i = 0; i < frontiers.size(); ++i) {
     ROS_DEBUG("frontier %zd cost: %.3f", i, frontiers[i].cost);
@@ -218,6 +222,19 @@ void Explore::makePlan()
   ROS_INFO("Frontier middle: %.3f, %.3f", frontier->middle.x, frontier->middle.y);
   ROS_INFO("Frontier centroid: %.3f, %.3f", frontier->centroid.x, frontier->centroid.y);
   geometry_msgs::Point target_position = frontier->centroid;
+  
+  // visualize path to centroid of first frontier
+  nav_msgs::Path path_msg;
+  geometry_msgs::PoseStamped pose_;
+  path_msg.header.frame_id = "map";
+  double wx, wy;
+  for (auto pt : frontier->path_to_centroid)
+  {
+    pose_.pose.position.x = pt.x;
+    pose_.pose.position.y = pt.y;
+    path_msg.poses.push_back(pose_);
+  }
+  path_to_goal_publisher_.publish(path_msg);
 
   // time out if we are not making any progress
   double diff_x = target_position.x - prev_goal_.x;
@@ -228,7 +245,6 @@ void Explore::makePlan()
   // if we found the same goal, let's find the next one
   if (same_goal) {
     ROS_INFO("Found the same goal again. No actions will be performed");
-    frontier = std::next(frontier);
     return;
   }
 
@@ -260,6 +276,8 @@ void Explore::makePlan()
                 const move_base_msgs::MoveBaseResultConstPtr& result) {
         reachedGoal(status, result, target_position);
       });
+  auto dt = ros::Time::now() - start_time;
+  ROS_WARN("Time to plan: %f s", dt.toSec());
 }
 
 bool Explore::goalOnBlacklist(const geometry_msgs::Point& goal)

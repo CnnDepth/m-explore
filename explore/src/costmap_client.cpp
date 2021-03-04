@@ -88,6 +88,17 @@ Costmap2DClient::Costmap2DClient(ros::NodeHandle& param_nh,
             updatePartialMap(msg);
           });
 
+  /*start_sub = subscription_nh.subscribe<geometry_msgs::PoseWithCovarianceStamped>("initialpose", 1000,
+                                    [this](const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& msg)
+                                    {
+                                      startCallback(msg);
+                                    });
+  goal_sub = subscription_nh.subscribe<geometry_msgs::PoseStamped>("move_base_simple/goal", 1000,
+                                   [this](const geometry_msgs::PoseStamped::ConstPtr& msg)
+                                   {
+                                     goalCallback(msg);
+                                   });*/
+
   /* resolve tf prefix for robot_base_frame */
   std::string tf_prefix = tf::getPrefixParam(param_nh);
   robot_base_frame_ = tf::resolve(tf_prefix, robot_base_frame_);
@@ -116,6 +127,26 @@ Costmap2DClient::Costmap2DClient(ros::NodeHandle& param_nh,
     tf_error.clear();
   }
 }
+
+/*void Costmap2DClient::startCallback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& msg)
+{
+    ROS_WARN("START POSITION IS RECIEVED3!");
+    x_st = msg->pose.pose.position.x;
+    y_st = msg->pose.pose.position.y;
+}
+
+void Costmap2DClient::goalCallback(const geometry_msgs::PoseStamped::ConstPtr& msg)
+{
+    ROS_WARN("GOAL POSITION IS RECIEVED3!");
+    x_gl = msg->pose.position.x;
+    y_gl = msg->pose.position.y;
+    if ((x_st == -1000) && (y_st == -1000))
+    {
+        ROS_WARN("START POSITION IS NOT SET!");
+        return;
+    }
+}*/
+
 
 void Costmap2DClient::preprocess(const nav_msgs::OccupancyGrid::ConstPtr& msg,
                                  unsigned int& size_in_cells_x,
@@ -201,6 +232,14 @@ void Costmap2DClient::updateFullMap(const nav_msgs::OccupancyGrid::ConstPtr& msg
     costmap_data[i] = cost_translation_table__[cell_cost];
   }
   //ROS_DEBUG("map updated, written %lu values", costmap_size);
+
+  // update map for sight
+  Point pos = Point(msg->info.origin.position.x, msg->info.origin.position.y);
+  Quaternion orient = {msg->info.origin.orientation.x, msg->info.origin.orientation.y, msg->info.origin.orientation.z, msg->info.origin.orientation.w};
+  std::vector<signed char> data_vector;
+  for (int i = 0; i < costmap_size; i++)
+    data_vector.push_back(data[i]);
+  map_for_sight_.Update(resolution, size_in_cells_y, size_in_cells_x, pos, orient, data_vector);
   delete data;
 }
 

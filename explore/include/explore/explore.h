@@ -44,11 +44,11 @@
 
 #include <actionlib/client/simple_action_client.h>
 #include <geometry_msgs/PoseStamped.h>
+#include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include <move_base_msgs/MoveBaseAction.h>
 #include <ros/ros.h>
 #include <visualization_msgs/MarkerArray.h>
 #include <nav_msgs/Path.h>
-#include <geometry_msgs/PoseStamped.h>
 
 #include <explore/costmap_client.h>
 #include <explore/frontier_search.h>
@@ -88,6 +88,12 @@ private:
   bool goalOnBlacklist(const geometry_msgs::Point& goal);
 
   bool goalHasReached(const geometry_msgs::Point& goal);
+
+  void smoothPath(frontier_exploration::Frontier &f);
+
+  //void startCallback(const geometry_msgs::PoseWithCovarianceStamped& msg);
+
+  //void goalCallback(const geometry_msgs::PoseStamped& msg);
 
   ros::NodeHandle private_nh_;
   ros::NodeHandle relative_nh_;
